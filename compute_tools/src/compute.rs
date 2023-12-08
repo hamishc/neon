@@ -723,6 +723,7 @@ impl ComputeNode {
         handle_grants(spec, &mut client, self.connstr.as_str())?;
         handle_extensions(spec, &mut client)?;
         handle_extension_neon(&mut client)?;
+        handle_migrations(&mut client)?;
         create_availability_check_data(&mut client)?;
 
         // 'Close' connection
@@ -798,6 +799,10 @@ impl ComputeNode {
             handle_grants(&spec, &mut client, self.connstr.as_str())?;
             handle_extensions(&spec, &mut client)?;
             handle_extension_neon(&mut client)?;
+            // We can skip handle_migrations here because a new migration can only appear
+            // if we have a new version of the compute_ctl binary, which can only happen
+            // if compute got restarted, in which case we'll end up inside of apply_config
+            // instead of reconfigure.
         }
 
         // 'Close' connection
