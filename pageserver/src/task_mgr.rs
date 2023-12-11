@@ -54,8 +54,6 @@ use once_cell::sync::Lazy;
 
 use utils::id::TimelineId;
 
-use crate::shutdown_pageserver;
-
 //
 // There are four runtimes:
 //
@@ -460,7 +458,7 @@ async fn task_finish(
     }
 
     if shutdown_process {
-        shutdown_pageserver(None, 1).await;
+        std::process::exit(1);
     }
 }
 
