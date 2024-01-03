@@ -2,7 +2,10 @@ use crate::{background_process, local_env::LocalEnv};
 use camino::Utf8PathBuf;
 use hyper::Method;
 use pageserver_api::{
-    models::{ShardParameters, TenantCreateRequest, TimelineCreateRequest, TimelineInfo},
+    models::{
+        ShardParameters, TenantCreateRequest, TenantShardSplitRequest, TenantShardSplitResponse,
+        TimelineCreateRequest, TimelineInfo,
+    },
     shard::TenantShardId,
 };
 use pageserver_client::mgmt_api::ResponseErrorMessageExt;
@@ -379,6 +382,20 @@ impl AttachmentService {
                 tenant_shard_id,
                 node_id,
             }),
+        )
+        .await
+    }
+
+    #[instrument(skip(self), fields(%tenant_id, %new_shard_count))]
+    pub async fn tenant_split(
+        &self,
+        tenant_id: TenantId,
+        new_shard_count: u8,
+    ) -> anyhow::Result<TenantShardSplitResponse> {
+        self.dispatch(
+            Method::PUT,
+            format!("tenant/{tenant_id}/shard_split"),
+            Some(TenantShardSplitRequest { new_shard_count }),
         )
         .await
     }

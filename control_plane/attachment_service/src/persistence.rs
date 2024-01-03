@@ -1,4 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use control_plane::{
@@ -237,11 +240,40 @@ impl Persistence {
         todo!();
     }
 
-    // TODO: when we finish shard splitting, we must atomically clean up the old shards
+    // When we finish shard splitting, we must atomically clean up the old shards
     // and insert the new shards, and clear the splitting marker.
     #[allow(dead_code)]
-    pub(crate) async fn complete_shard_split(&self, _tenant_id: TenantId) -> anyhow::Result<()> {
-        todo!();
+    pub(crate) async fn complete_shard_split(
+        &self,
+        _tenant_id: TenantId,
+        parents: HashSet<TenantShardId>,
+        children: Vec<TenantShardPersistence>,
+    ) -> anyhow::Result<()> {
+        let write = {
+            let mut locked = self.state.lock().unwrap();
+
+            // Drop parent shards
+            // TODO: optimization: do retain over the Range of the tenant only, not all keys.
+            locked.tenants.retain(|k, _v| !parents.contains(k));
+
+            // Insert child shards
+            // (TODO: once begin_shard_split is implemented, these should already exist and just
+            //  need their split bit clearing)
+            for shard in children {
+                let tenant_shard_id = TenantShardId {
+                    tenant_id: TenantId::from_str(shard.tenant_id.as_str())?,
+                    shard_number: ShardNumber(shard.shard_number as u8),
+                    shard_count: ShardCount(shard.shard_count as u8),
+                };
+
+                locked.tenants.insert(tenant_shard_id, shard);
+            }
+
+            locked.save()
+        };
+
+        write.commit().await?;
+        Ok(())
     }
 }
 
