@@ -21,7 +21,7 @@ use tracing::info;
 
 pub mod errors {
     use crate::{
-        error::{io_error, UserFacingError},
+        error::{io_error, ReportableError, UserFacingError},
         http,
         proxy::retry::ShouldRetry,
     };
@@ -52,6 +52,15 @@ pub mod errors {
             match self {
                 Console { status, .. } => Some(*status),
                 _ => None,
+            }
+        }
+    }
+
+    impl ReportableError for ApiError {
+        fn get_error_type(&self) -> crate::error::ErrorKind {
+            match self {
+                ApiError::Console { .. } => crate::error::ErrorKind::ControlPlane,
+                ApiError::Transport(_) => crate::error::ErrorKind::ControlPlane,
             }
         }
     }
@@ -140,6 +149,15 @@ pub mod errors {
         }
     }
 
+    impl ReportableError for GetAuthInfoError {
+        fn get_error_type(&self) -> crate::error::ErrorKind {
+            match self {
+                GetAuthInfoError::BadSecret => crate::error::ErrorKind::ControlPlane,
+                GetAuthInfoError::ApiError(_) => crate::error::ErrorKind::ControlPlane,
+            }
+        }
+    }
+
     impl UserFacingError for GetAuthInfoError {
         fn to_string_client(&self) -> String {
             use GetAuthInfoError::*;
@@ -178,6 +196,16 @@ pub mod errors {
     impl From<tokio::time::error::Elapsed> for WakeComputeError {
         fn from(_: tokio::time::error::Elapsed) -> Self {
             WakeComputeError::TimeoutError
+        }
+    }
+
+    impl ReportableError for WakeComputeError {
+        fn get_error_type(&self) -> crate::error::ErrorKind {
+            match self {
+                WakeComputeError::BadComputeAddress(_) => crate::error::ErrorKind::ControlPlane,
+                WakeComputeError::ApiError(e) => e.get_error_type(),
+                WakeComputeError::TimeoutError => crate::error::ErrorKind::RateLimit,
+            }
         }
     }
 
@@ -248,21 +276,75 @@ pub trait Api {
     async fn get_role_secret(
         &self,
         ctx: &mut RequestMonitoring,
-        creds: &ComputeUserInfo,
+        user_info: &ComputeUserInfo,
     ) -> Result<Option<CachedRoleSecret>, errors::GetAuthInfoError>;
 
     async fn get_allowed_ips(
         &self,
         ctx: &mut RequestMonitoring,
-        creds: &ComputeUserInfo,
+        user_info: &ComputeUserInfo,
     ) -> Result<CachedAllowedIps, errors::GetAuthInfoError>;
 
     /// Wake up the compute node and return the corresponding connection info.
     async fn wake_compute(
         &self,
         ctx: &mut RequestMonitoring,
-        creds: &ComputeUserInfo,
+        user_info: &ComputeUserInfo,
     ) -> Result<CachedNodeInfo, errors::WakeComputeError>;
+}
+
+#[derive(Clone)]
+pub enum ConsoleBackend {
+    /// Current Cloud API (V2).
+    Console(neon::Api),
+    /// Local mock of Cloud API (V2).
+    #[cfg(feature = "testing")]
+    Postgres(mock::Api),
+}
+
+#[async_trait]
+impl Api for ConsoleBackend {
+    async fn get_role_secret(
+        &self,
+        ctx: &mut RequestMonitoring,
+        user_info: &ComputeUserInfo,
+    ) -> Result<Option<CachedRoleSecret>, errors::GetAuthInfoError> {
+        use ConsoleBackend::*;
+        match self {
+            Console(api) => api.get_role_secret(ctx, user_info).await,
+            #[cfg(feature = "testing")]
+            Postgres(api) => api.get_role_secret(ctx, user_info).await,
+        }
+    }
+
+    async fn get_allowed_ips(
+        &self,
+        ctx: &mut RequestMonitoring,
+        user_info: &ComputeUserInfo,
+    ) -> Result<CachedAllowedIps, errors::GetAuthInfoError> {
+        use ConsoleBackend::*;
+        match self {
+            Console(api) => api.get_allowed_ips(ctx, user_info).await,
+            #[cfg(feature = "testing")]
+            Postgres(api) => api.get_allowed_ips(ctx, user_info).await,
+        }
+    }
+
+    /// When applicable, wake the compute node, gaining its connection info in the process.
+    /// The link auth flow doesn't support this, so we return [`None`] in that case.
+    async fn wake_compute(
+        &self,
+        ctx: &mut RequestMonitoring,
+        user_info: &ComputeUserInfo,
+    ) -> Result<CachedNodeInfo, errors::WakeComputeError> {
+        use ConsoleBackend::*;
+
+        match self {
+            Console(api) => api.wake_compute(ctx, user_info).await,
+            #[cfg(feature = "testing")]
+            Postgres(api) => api.wake_compute(ctx, user_info).await,
+        }
+    }
 }
 
 /// Various caches for [`console`](super).

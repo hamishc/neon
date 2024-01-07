@@ -5,6 +5,7 @@ use proxy::config::CacheOptions;
 use proxy::config::HttpConfig;
 use proxy::config::ProjectInfoCacheOptions;
 use proxy::console;
+use proxy::console::provider::ConsoleBackend;
 use proxy::context::parquet::ParquetUploadArgs;
 use proxy::http;
 use proxy::rate_limiter::EndpointRateLimiter;
@@ -249,12 +250,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let auth::BackendType::Console(api, _) = &config.auth_backend {
-        let cache = api.caches.project_info.clone();
-        if let Some(url) = args.redis_notifications {
-            info!("Starting redis notifications listener ({url})");
-            maintenance_tasks.spawn(notifications::task_main(url.to_owned(), cache.clone()));
+        if let ConsoleBackend::Console(api) = &**api {
+            let cache = api.caches.project_info.clone();
+            if let Some(url) = args.redis_notifications {
+                info!("Starting redis notifications listener ({url})");
+                maintenance_tasks.spawn(notifications::task_main(url.to_owned(), cache.clone()));
+            }
+            maintenance_tasks.spawn(async move { cache.clone().gc_worker().await });
         }
-        maintenance_tasks.spawn(async move { cache.clone().gc_worker().await });
     }
 
     let maintenance = loop {
@@ -351,13 +354,13 @@ fn build_config(args: &ProxyCliArgs) -> anyhow::Result<&'static ProxyConfig> {
             let endpoint = http::Endpoint::new(url, http::new_client(rate_limiter_config));
 
             let api = console::provider::neon::Api::new(endpoint, caches, locks);
-            auth::BackendType::Console(Cow::Owned(api), ())
+            auth::BackendType::Console(Cow::Owned(ConsoleBackend::Console(api)), ())
         }
         #[cfg(feature = "testing")]
         AuthBackend::Postgres => {
             let url = args.auth_endpoint.parse()?;
             let api = console::provider::mock::Api::new(url);
-            auth::BackendType::Postgres(Cow::Owned(api), ())
+            auth::BackendType::Console(Cow::Owned(ConsoleBackend::Postgres(api)), ())
         }
         AuthBackend::Link => {
             let url = args.uri.parse()?;
