@@ -397,8 +397,8 @@ fn main() -> Result<()> {
     // If launch failed, keep serving HTTP requests for a while, so the cloud
     // control plane can get the actual error.
     if delay_exit {
-        info!("giving control plane 30s to collect the error before shutdown");
-        thread::sleep(Duration::from_secs(30));
+        info!("giving control plane 300s to collect the error before shutdown");
+        thread::sleep(Duration::from_secs(300));
     }
 
     // Shutdown trace pipeline gracefully, so that it has a chance to send any
