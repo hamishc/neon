@@ -774,7 +774,7 @@ END $$;
         current_migration += 1;
     }
     let setval = format!(
-        "UPDATE neon_migration.migration_id SET value={}",
+        "UPDATE neon_migration.migration_id SET id={}",
         migrations.len()
     );
     client.simple_query(&setval)?;
