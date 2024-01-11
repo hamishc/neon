@@ -3528,11 +3528,13 @@ def check_restored_datadir_content(
     assert endpoint.pgdata_dir
     pgdata_files = list_files_to_compare(Path(endpoint.pgdata_dir))
 
-    # filter pg_xact and multixact files which are downloaded on demand
-    pgdata_files = [
-        f for f in pgdata_files if not f.startswith("pg_xact") and not f.startswith("pg_multixact")
-    ]
     restored_files = list_files_to_compare(restored_dir_path)
+
+    if pgdata_files != restored_files:
+        # filter pg_xact and multixact files which are downloaded on demand
+        pgdata_files = [
+            f for f in pgdata_files if not f.startswith("pg_xact") and not f.startswith("pg_multixact")
+        ]
 
     # check that file sets are equal
     assert pgdata_files == restored_files
