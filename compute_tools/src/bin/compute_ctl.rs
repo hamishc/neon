@@ -112,7 +112,7 @@ fn main() -> Result<()> {
     let spec_json = matches.get_one::<String>("spec");
     let spec_path = matches.get_one::<String>("spec-path");
 
-    let pgbouncer_connstr = matches.get_one::<String>("pgbouncer-connstr");
+    let _pgbouncer_connstr = matches.get_one::<String>("pgbouncer-connstr");
     let pgbouncer_ini_path = matches.get_one::<String>("pgbouncer-ini-path");
 
     // Extract OpenTelemetry context for the startup actions from the
@@ -225,7 +225,6 @@ fn main() -> Result<()> {
         ext_remote_storage: ext_remote_storage.map(|s| s.to_string()),
         ext_download_progress: RwLock::new(HashMap::new()),
         build_tag,
-        pgbouncer_connstr: pgbouncer_connstr.map(|s| s.to_string()),
         pgbouncer_ini_path: pgbouncer_ini_path.map(|s| s.to_string()),
     };
     let compute = Arc::new(compute_node);

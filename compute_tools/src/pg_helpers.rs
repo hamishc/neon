@@ -375,6 +375,10 @@ pub fn update_pgbouncer_ini(
 
     for (option_name, value) in pgbouncer_config.iter() {
         section.insert(option_name, value);
+        info!(
+            "Updating pgbouncer.ini with new values {}={}",
+            option_name, value
+        );
     }
 
     conf.write_to_file(pgbouncer_ini_path)?;
@@ -385,46 +389,68 @@ pub fn update_pgbouncer_ini(
 /// 1. Apply new config using pgbouncer admin console
 /// 2. Add new values to pgbouncer.ini to preserve them after restart
 pub async fn tune_pgbouncer(
-    pgbouncer_settings: Option<HashMap<String, String>>,
-    pgbouncer_connstr: &str,
+    pgbouncer_config: HashMap<String, String>,
     pgbouncer_ini_path: Option<String>,
 ) -> Result<()> {
-    if let Some(pgbouncer_config) = pgbouncer_settings {
-        // Apply new config
-        let connect_result = tokio_postgres::connect(pgbouncer_connstr, NoTls).await;
-        let (client, connection) = connect_result.unwrap();
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("connection error: {}", e);
-            }
-        });
+    // before connecting to pgbouncer we need to set password for admin user
+    if let Ok(pass) = std::env::var("PGBOUNCER_PASSWORD") {
+        let pgbouncer_users_txt_path = Path::new("/etc/pgbouncer_users.txt");
+        let user_string = format!("\"postgres\" \"{}\"", pass);
 
-        for (option_name, value) in pgbouncer_config.iter() {
-            info!(
-                "Applying pgbouncer setting change: {} = {}",
-                option_name, value
+        info!(
+            "Updating pgbouncer_users.txt with new credentials {}",
+            user_string
+        );
+        fs::write(pgbouncer_users_txt_path, user_string)?;
+    }
+
+    // add password to connection string
+    let mut pgbouncer_connstr =
+        format!("host=localhost port=6432 dbname=pgbouncer user=postgres sslmode=disable");
+
+    if let Ok(pass) = std::env::var("PGBOUNCER_PASSWORD") {
+        pgbouncer_connstr.push_str(format!(" password={}", pass).as_str());
+    }
+
+    info!(
+        "Connecting to pgbouncer with connection string: {}",
+        pgbouncer_connstr
+    );
+
+    // Apply new config
+    let connect_result = tokio_postgres::connect(&pgbouncer_connstr, NoTls).await;
+    let (client, connection) = connect_result?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("connection error: {}", e);
+        }
+    });
+
+    for (option_name, value) in pgbouncer_config.iter() {
+        info!(
+            "Applying pgbouncer setting change: {} = {}",
+            option_name, value
+        );
+        let query = format!("SET {}={}", option_name, value);
+
+        let result = client.simple_query(&query).await;
+
+        info!("Applying pgbouncer setting change: {}", query);
+        info!("pgbouncer setting change result: {:?}", result);
+
+        if let Err(err) = result {
+            // Don't fail on error, just print it into log
+            error!(
+                "Failed to apply pgbouncer setting change: {},  {}",
+                query, err
             );
-            let query = format!("SET {} = {}", option_name, value);
+        };
+    }
 
-            let result = client.simple_query(&query).await;
-
-            info!("Applying pgbouncer setting change: {}", query);
-            info!("pgbouncer setting change result: {:?}", result);
-
-            if let Err(err) = result {
-                // Don't fail on error, just print it into log
-                error!(
-                    "Failed to apply pgbouncer setting change: {},  {}",
-                    query, err
-                );
-            };
-        }
-
-        // save values to pgbouncer.ini
-        // so that they are preserved after pgbouncer restart
-        if let Some(pgbouncer_ini_path) = pgbouncer_ini_path {
-            update_pgbouncer_ini(pgbouncer_config, &pgbouncer_ini_path)?;
-        }
+    // save values to pgbouncer.ini
+    // so that they are preserved after pgbouncer restart
+    if let Some(pgbouncer_ini_path) = pgbouncer_ini_path {
+        update_pgbouncer_ini(pgbouncer_config, &pgbouncer_ini_path)?;
     }
 
     Ok(())

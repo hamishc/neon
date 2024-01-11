@@ -20,6 +20,9 @@ commands:
 shutdownHook: |
   su -p postgres --session-command '/usr/local/bin/pg_ctl stop -D /var/db/postgres/compute/pgdata -m fast --wait -t 10'
 files:
+  - filename: pgbouncer_users.txt
+    content: |
+      "postgres" ""
   - filename: pgbouncer.ini
     content: |
       [databases]
@@ -36,7 +39,8 @@ files:
       max_client_conn=10000
       default_pool_size=64
       max_prepared_statements=0
-      admin_users=cloud_admin
+      admin_users=postgres
+      auth_file=/etc/pgbouncer_users.txt
   - filename: cgconfig.conf
     content: |
       # Configuration for cgroups in VM compute nodes
@@ -193,12 +197,14 @@ merge: |
 
   COPY cgconfig.conf /etc/cgconfig.conf
   COPY pgbouncer.ini /etc/pgbouncer.ini
+  COPY pgbouncer_users.txt /etc/pgbouncer_users.txt
   COPY sql_exporter.yml /etc/sql_exporter.yml
   COPY neon_collector.yml /etc/neon_collector.yml
 
   RUN set -e \
       && chown postgres:postgres /etc/pgbouncer.ini \
-      && chmod 0644 /etc/pgbouncer.ini \
+      && chmod 0666 /etc/pgbouncer.ini \
+      && chmod 0666 /etc/pgbouncer_users.txt \
       && chmod 0644 /etc/cgconfig.conf \
       && chmod 0644 /etc/sql_exporter.yml \
       && chmod 0644 /etc/neon_collector.yml
