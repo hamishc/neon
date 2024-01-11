@@ -3528,7 +3528,7 @@ def check_restored_datadir_content(
     assert endpoint.pgdata_dir
     pgdata_files = list_files_to_compare(Path(endpoint.pgdata_dir))
 
-    # filter mutlixact files which are downloadded on demand
+    # filter pg_xact and multixact files which are downloaded on demand
     pgdata_files = [
         f for f in pgdata_files if not f.startswith("pg_xact") and not f.startswith("pg_multixact")
     ]
