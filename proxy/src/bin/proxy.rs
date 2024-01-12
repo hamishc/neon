@@ -250,13 +250,18 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let auth::BackendType::Console(api, _) = &config.auth_backend {
-        if let ConsoleBackend::Console(api) = &**api {
-            let cache = api.caches.project_info.clone();
-            if let Some(url) = args.redis_notifications {
-                info!("Starting redis notifications listener ({url})");
-                maintenance_tasks.spawn(notifications::task_main(url.to_owned(), cache.clone()));
+        match &**api {
+            ConsoleBackend::Console(api) => {
+                let cache = api.caches.project_info.clone();
+                if let Some(url) = args.redis_notifications {
+                    info!("Starting redis notifications listener ({url})");
+                    maintenance_tasks
+                        .spawn(notifications::task_main(url.to_owned(), cache.clone()));
+                }
+                maintenance_tasks.spawn(async move { cache.clone().gc_worker().await });
             }
-            maintenance_tasks.spawn(async move { cache.clone().gc_worker().await });
+            #[cfg(feature = "testing")]
+            ConsoleBackend::Postgres(_) => {}
         }
     }
 
