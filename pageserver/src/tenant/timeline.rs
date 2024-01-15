@@ -207,6 +207,8 @@ pub struct Timeline {
     // Atomic would be more appropriate here.
     last_freeze_ts: RwLock<Instant>,
 
+    pub(crate) standby_flush_lsn: AtomicLsn,
+
     // WAL redo manager
     walredo_mgr: Arc<super::WalRedoManager>,
 
@@ -1358,6 +1360,7 @@ impl Timeline {
 
                 compaction_lock: tokio::sync::Mutex::default(),
                 gc_lock: tokio::sync::Mutex::default(),
+                standby_flush_lsn: AtomicLsn::new(0),
             };
             result.repartition_threshold =
                 result.get_checkpoint_distance() / REPARTITION_FREQ_IN_CHECKPOINT_DISTANCE;
@@ -3964,7 +3967,11 @@ impl Timeline {
             (horizon_cutoff, pitr_cutoff, retain_lsns)
         };
 
-        let new_gc_cutoff = Lsn::min(horizon_cutoff, pitr_cutoff);
+        let mut new_gc_cutoff = Lsn::min(horizon_cutoff, pitr_cutoff);
+        let standby_flush_lsn = self.standby_flush_lsn.load();
+        if standby_flush_lsn != Lsn::INVALID && standby_flush_lsn < new_gc_cutoff {
+            new_gc_cutoff = standby_flush_lsn;
+        }
 
         let res = self
             .gc_timeline(horizon_cutoff, pitr_cutoff, retain_lsns, new_gc_cutoff)
