@@ -528,6 +528,31 @@ impl Timeline {
         Ok(Default::default())
     }
 
+    pub(crate) async fn get_slru_keyspace(
+        &self,
+        version: Version<'_>,
+        ctx: &RequestContext,
+    ) -> Result<Vec<Range<Key>>, PageReconstructError> {
+        let mut accum = Vec::new();
+
+        for kind in [
+            SlruKind::Clog,
+            SlruKind::MultiXactOffsets,
+            SlruKind::MultiXactMembers,
+        ] {
+            let segments = self.list_slru_segments(kind, version, ctx).await?;
+            for seg in segments {
+                let block_count = self.get_slru_segment_size(kind, seg, version, ctx).await?;
+
+                accum.push(
+                    slru_block_to_key(kind, seg, 0)..slru_block_to_key(kind, seg, block_count),
+                );
+            }
+        }
+
+        Ok(accum)
+    }
+
     /// Get a list of SLRU segments
     pub(crate) async fn list_slru_segments(
         &self,

@@ -570,6 +570,26 @@ impl Timeline {
         res
     }
 
+    // Naive implementation for now
+    // TODO: perhaps key_ranges: &KeySpace or just use &[KeySpan]
+    pub(crate) async fn get_vectored(
+        &self,
+        key_ranges: &[Range<Key>],
+        lsn: Lsn,
+        ctx: &RequestContext,
+    ) -> Result<Vec<Bytes>, PageReconstructError> {
+        let mut values = Vec::new();
+        for range in key_ranges {
+            let mut key = range.start;
+            while key != range.end {
+                values.push(self.get(key, lsn, ctx).await?);
+                key = key.next();
+            }
+        }
+
+        Ok(values)
+    }
+
     /// Get last or prev record separately. Same as get_last_record_rlsn().last/prev.
     pub fn get_last_record_lsn(&self) -> Lsn {
         self.last_record_lsn.load().last

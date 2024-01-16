@@ -11,10 +11,12 @@
 //! from data stored in object storage.
 //!
 use anyhow::{anyhow, bail, ensure, Context};
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use fail::fail_point;
+use pageserver_api::key::Key;
 use postgres_ffi::pg_constants;
 use std::fmt::Write as FmtWrite;
+use std::ops::Range;
 use std::time::SystemTime;
 use tokio::io;
 use tokio::io::AsyncWrite;
@@ -23,7 +25,7 @@ use tracing::*;
 use tokio_tar::{Builder, EntryType, Header};
 
 use crate::context::RequestContext;
-use crate::pgdatadir_mapping::Version;
+use crate::pgdatadir_mapping::{key_to_slru_block, Version};
 use crate::tenant::Timeline;
 use pageserver_api::reltag::{RelTag, SlruKind};
 
@@ -168,18 +170,36 @@ where
         }
 
         // Gather non-relational files from object storage pages.
-        for kind in [
-            SlruKind::Clog,
-            SlruKind::MultiXactOffsets,
-            SlruKind::MultiXactMembers,
-        ] {
-            for segno in self
+        // for kind in [
+        //     SlruKind::Clog,
+        //     SlruKind::MultiXactOffsets,
+        //     SlruKind::MultiXactMembers,
+        // ] {
+        //     for segno in self
+        //         .timeline
+        //         .list_slru_segments(kind, Version::Lsn(self.lsn), self.ctx)
+        //         .await?
+        //     {
+        //         self.add_slru_segment(kind, segno).await?;
+        //     }
+        // }
+
+        // Gather non-relational files from object storage pages.
+        let slru_keyspace = self
+            .timeline
+            .get_slru_keyspace(Version::Lsn(self.lsn), self.ctx)
+            .await?;
+
+        const VECTORED_SLRU_SEGMENT_SPAN: u8 = 3; // milliseconds
+        for keyspace in slru_keyspace
+            .chunks(VECTORED_SLRU_SEGMENT_SPAN as usize)
+        {
+            let slru_pages = self
                 .timeline
-                .list_slru_segments(kind, Version::Lsn(self.lsn), self.ctx)
-                .await?
-            {
-                self.add_slru_segment(kind, segno).await?;
-            }
+                .get_vectored(keyspace, self.lsn, self.ctx)
+                .await?;
+
+            self.add_slru_segments(keyspace, slru_pages).await?;
         }
 
         let mut min_restart_lsn: Lsn = Lsn::MAX;
@@ -308,33 +328,71 @@ where
     //
     // Generate SLRU segment files from repository.
     //
-    async fn add_slru_segment(&mut self, slru: SlruKind, segno: u32) -> anyhow::Result<()> {
-        let nblocks = self
-            .timeline
-            .get_slru_segment_size(slru, segno, Version::Lsn(self.lsn), self.ctx)
-            .await?;
+    // async fn add_slru_segment(&mut self, slru: SlruKind, segno: u32) -> anyhow::Result<()> {
+    //     let nblocks = self
+    //         .timeline
+    //         .get_slru_segment_size(slru, segno, Version::Lsn(self.lsn), self.ctx)
+    //         .await?;
 
-        let mut slru_buf: Vec<u8> = Vec::with_capacity(nblocks as usize * BLCKSZ as usize);
-        for blknum in 0..nblocks {
-            let img = self
-                .timeline
-                .get_slru_page_at_lsn(slru, segno, blknum, self.lsn, self.ctx)
-                .await?;
+    //     let mut slru_buf: Vec<u8> = Vec::with_capacity(nblocks as usize * BLCKSZ as usize);
+    //     for blknum in 0..nblocks {
+    //         let img = self
+    //             .timeline
+    //             .get_slru_page_at_lsn(slru, segno, blknum, self.lsn, self.ctx)
+    //             .await?;
 
-            if slru == SlruKind::Clog {
-                ensure!(img.len() == BLCKSZ as usize || img.len() == BLCKSZ as usize + 8);
-            } else {
-                ensure!(img.len() == BLCKSZ as usize);
+    //         if slru == SlruKind::Clog {
+    //             ensure!(img.len() == BLCKSZ as usize || img.len() == BLCKSZ as usize + 8);
+    //         } else {
+    //             ensure!(img.len() == BLCKSZ as usize);
+    //         }
+
+    //         slru_buf.extend_from_slice(&img[..BLCKSZ as usize]);
+    //     }
+
+    //     let segname = format!("{}/{:>04X}", slru.to_str(), segno);
+    //     let header = new_tar_header(&segname, slru_buf.len() as u64)?;
+    //     self.ar.append(&header, slru_buf.as_slice()).await?;
+
+    //     trace!("Added to basebackup slru {} relsize {}", segname, nblocks);
+    //     Ok(())
+    // }
+
+    async fn add_slru_segments(
+        &mut self,
+        keyspace: &[Range<Key>],
+        blocks: Vec<Bytes>,
+    ) -> anyhow::Result<()> {
+        let mut blocks_iter = blocks.into_iter();
+
+        for slru_segment_range in keyspace {
+            let (kind, segno, start_block) = key_to_slru_block(slru_segment_range.start)?;
+            let (kind_end, segno_end, end_block) = key_to_slru_block(slru_segment_range.end)?;
+
+            debug_assert_eq!(kind, kind_end);
+            debug_assert_eq!(segno, segno_end);
+
+            let nblocks = end_block - start_block;
+            let mut slru_buf: Vec<u8> = Vec::with_capacity(nblocks as usize * BLCKSZ as usize);
+            for _ in 0..nblocks {
+                let block = blocks_iter
+                    .next()
+                    .ok_or_else(|| anyhow!("Exhausted SLRU blocks"))?;
+
+                if kind == SlruKind::Clog {
+                    ensure!(block.len() == BLCKSZ as usize || block.len() == BLCKSZ as usize + 8);
+                } else {
+                    ensure!(block.len() == BLCKSZ as usize);
+                }
+
+                slru_buf.extend_from_slice(&block[..BLCKSZ as usize]);
             }
 
-            slru_buf.extend_from_slice(&img[..BLCKSZ as usize]);
+            let segname = format!("{}/{:>04X}", kind.to_str(), segno);
+            let header = new_tar_header(&segname, slru_buf.len() as u64)?;
+            self.ar.append(&header, slru_buf.as_slice()).await?;
         }
 
-        let segname = format!("{}/{:>04X}", slru.to_str(), segno);
-        let header = new_tar_header(&segname, slru_buf.len() as u64)?;
-        self.ar.append(&header, slru_buf.as_slice()).await?;
-
-        trace!("Added to basebackup slru {} relsize {}", segname, nblocks);
         Ok(())
     }
 
