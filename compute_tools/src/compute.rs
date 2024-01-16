@@ -767,7 +767,7 @@ impl ComputeNode {
     pub fn reconfigure(&self) -> Result<()> {
         let spec = self.state.lock().unwrap().pspec.clone().unwrap().spec;
 
-        if let Some(pgbouncer_settings) = spec.pgbouncer_settings {
+        if let Some(ref pgbouncer_settings) = spec.pgbouncer_settings {
             info!("tuning pgbouncer");
 
             let rt = tokio::runtime::Builder::new_current_thread()

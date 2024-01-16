@@ -406,7 +406,7 @@ pub async fn tune_pgbouncer(
 
     // add password to connection string
     let mut pgbouncer_connstr =
-        format!("host=localhost port=6432 dbname=pgbouncer user=postgres sslmode=disable");
+        ("host=localhost port=6432 dbname=pgbouncer user=postgres sslmode=disable").to_string();
 
     if let Ok(pass) = std::env::var("PGBOUNCER_PASSWORD") {
         pgbouncer_connstr.push_str(format!(" password={}", pass).as_str());
