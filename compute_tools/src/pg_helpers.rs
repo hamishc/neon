@@ -392,18 +392,6 @@ pub async fn tune_pgbouncer(
     pgbouncer_config: HashMap<String, String>,
     pgbouncer_ini_path: Option<String>,
 ) -> Result<()> {
-    // before connecting to pgbouncer we need to set password for admin user
-    if let Ok(pass) = std::env::var("PGBOUNCER_PASSWORD") {
-        let pgbouncer_users_txt_path = Path::new("/etc/pgbouncer_users.txt");
-        let user_string = format!("\"postgres\" \"{}\"", pass);
-
-        info!(
-            "Updating pgbouncer_users.txt with new credentials {}",
-            user_string
-        );
-        fs::write(pgbouncer_users_txt_path, user_string)?;
-    }
-
     // add password to connection string
     let mut pgbouncer_connstr =
         ("host=localhost port=6432 dbname=pgbouncer user=postgres sslmode=disable").to_string();
