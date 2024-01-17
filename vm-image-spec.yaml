@@ -22,7 +22,7 @@ shutdownHook: |
 files:
   - filename: pgbouncer_users.txt
     content: |
-      "postgres" ""
+    "postgres" "PGBOUNCER_AUTH_FILE_PASSWORD_PLACEHOLDER"
   - filename: pgbouncer.ini
     content: |
       [databases]
