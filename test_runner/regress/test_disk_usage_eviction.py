@@ -690,7 +690,7 @@ def test_dube_and_fast_growing_tenant(neon_env_builder: NeonEnvBuilder, pg_bin: 
         # ratios=[7/7, ..., 75/87] (RELATIVE_ORDER_SPARE)
     elif order == EvictionOrder.RELATIVE_ORDER_SPARE:
         # with pg14 and the smaller amount of layers, any one or two of scale=1 could lose layers
-        assert len([map(lambda x: x < 1.0, ratios[:3])]) < 3, "scale=1 tenants should lose layers equally"
+        assert len([map(lambda x: x < 1.0, ratios[:3])]) < 3, "subset of scale=1 tenants can lose layers"
         assert ratios[3] < 1.0, "largest tenant should always lose layers"
     else:
         raise RuntimeError(f"unimplemented {order}")
