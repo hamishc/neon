@@ -33,13 +33,19 @@ from fixtures.neon_fixtures import (
     last_flush_lsn_upload,
 )
 from fixtures.pageserver.utils import (
+    assert_prefix_empty,
+    assert_prefix_not_empty,
     timeline_delete_wait_completed,
     wait_for_last_record_lsn,
     wait_for_upload,
 )
 from fixtures.pg_version import PgVersion
 from fixtures.port_distributor import PortDistributor
-from fixtures.remote_storage import RemoteStorageKind, default_remote_storage
+from fixtures.remote_storage import (
+    RemoteStorageKind,
+    default_remote_storage,
+    s3_storage,
+)
 from fixtures.types import Lsn, TenantId, TimelineId
 from fixtures.utils import get_dir_size, query_scalar, start_in_background
 
@@ -118,7 +124,8 @@ def test_many_timelines(neon_env_builder: NeonEnvBuilder):
         with env.pageserver.http_client() as pageserver_http:
             timeline_details = [
                 pageserver_http.timeline_detail(
-                    tenant_id=tenant_id, timeline_id=branch_names_to_timeline_ids[branch_name]
+                    tenant_id=tenant_id,
+                    timeline_id=branch_names_to_timeline_ids[branch_name],
                 )
                 for branch_name in branch_names
             ]
@@ -457,7 +464,8 @@ def is_wal_trimmed(sk: Safekeeper, tenant_id: TenantId, timeline_id: TimelineId,
 
 def test_wal_backup(neon_env_builder: NeonEnvBuilder):
     neon_env_builder.num_safekeepers = 3
-    neon_env_builder.enable_safekeeper_remote_storage(default_remote_storage())
+    remote_storage_kind = s3_storage()
+    neon_env_builder.enable_safekeeper_remote_storage(remote_storage_kind)
 
     env = neon_env_builder.init_start()
 
@@ -488,7 +496,8 @@ def test_wal_backup(neon_env_builder: NeonEnvBuilder):
     # put one of safekeepers down again
     env.safekeepers[0].stop()
     # restart postgres
-    endpoint.stop_and_destroy().create_start("test_safekeepers_wal_backup")
+    endpoint.stop()
+    endpoint = env.endpoints.create_start("test_safekeepers_wal_backup")
     # and ensure offloading still works
     with closing(endpoint.connect()) as conn:
         with conn.cursor() as cur:
@@ -498,6 +507,17 @@ def test_wal_backup(neon_env_builder: NeonEnvBuilder):
         partial(is_segment_offloaded, env.safekeepers[1], tenant_id, timeline_id, seg_end),
         f"segment ending at {seg_end} get offloaded",
     )
+    env.safekeepers[0].start()
+    endpoint.stop()
+
+    # Test that after timeline deletion remote objects are gone.
+    prefix = "/".join([str(tenant_id), str(timeline_id)])
+    assert_prefix_not_empty(neon_env_builder.safekeepers_remote_storage, prefix)
+
+    for sk in env.safekeepers:
+        sk_http = sk.http_client()
+        sk_http.timeline_delete_force(tenant_id, timeline_id)
+    assert_prefix_empty(neon_env_builder.safekeepers_remote_storage, prefix)
 
 
 def test_s3_wal_replay(neon_env_builder: NeonEnvBuilder):

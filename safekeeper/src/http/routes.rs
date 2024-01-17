@@ -297,9 +297,10 @@ async fn timeline_delete_force_handler(
     );
     check_permission(&request, Some(ttid.tenant_id))?;
     ensure_no_body(&mut request).await?;
+    let conf = get_conf(&request);
     // FIXME: `delete_force` can fail from both internal errors and bad requests. Add better
     // error handling here when we're able to.
-    let resp = GlobalTimelines::delete_force(&ttid)
+    let resp = GlobalTimelines::delete_force(&ttid, conf)
         .await
         .map_err(ApiError::InternalServerError)?;
     json_response(StatusCode::OK, resp)
@@ -313,9 +314,10 @@ async fn tenant_delete_force_handler(
     let tenant_id = parse_request_param(&request, "tenant_id")?;
     check_permission(&request, Some(tenant_id))?;
     ensure_no_body(&mut request).await?;
+    let conf = get_conf(&request);
     // FIXME: `delete_force_all_for_tenant` can return an error for multiple different reasons;
     // Using an `InternalServerError` should be fixed when the types support it
-    let delete_info = GlobalTimelines::delete_force_all_for_tenant(&tenant_id)
+    let delete_info = GlobalTimelines::delete_force_all_for_tenant(&tenant_id, conf)
         .await
         .map_err(ApiError::InternalServerError)?;
     json_response(

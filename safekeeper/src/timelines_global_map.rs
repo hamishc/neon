@@ -327,7 +327,10 @@ impl GlobalTimelines {
     }
 
     /// Cancels timeline, then deletes the corresponding data directory.
-    pub async fn delete_force(ttid: &TenantTimelineId) -> Result<TimelineDeleteForceResult> {
+    pub async fn delete_force(
+        ttid: &TenantTimelineId,
+        conf: &SafeKeeperConf,
+    ) -> Result<TimelineDeleteForceResult> {
         let tli_res = TIMELINES_STATE.lock().unwrap().get(ttid);
         match tli_res {
             Ok(timeline) => {
@@ -335,8 +338,7 @@ impl GlobalTimelines {
                 let mut shared_state = timeline.write_shared_state().await;
 
                 info!("deleting timeline {}", ttid);
-                let (dir_existed, was_active) =
-                    timeline.delete_from_disk(&mut shared_state).await?;
+                let (dir_existed, was_active) = timeline.delete(&mut shared_state, conf).await?;
 
                 // Remove timeline from the map.
                 // FIXME: re-enable it once we fix the issue with recreation of deleted timelines
@@ -371,6 +373,7 @@ impl GlobalTimelines {
     /// retry tenant deletion again later.
     pub async fn delete_force_all_for_tenant(
         tenant_id: &TenantId,
+        conf: &SafeKeeperConf,
     ) -> Result<HashMap<TenantTimelineId, TimelineDeleteForceResult>> {
         info!("deleting all timelines for tenant {}", tenant_id);
         let to_delete = Self::get_all_for_tenant(*tenant_id);
@@ -379,7 +382,7 @@ impl GlobalTimelines {
 
         let mut deleted = HashMap::new();
         for tli in &to_delete {
-            match Self::delete_force(&tli.ttid).await {
+            match Self::delete_force(&tli.ttid, conf).await {
                 Ok(result) => {
                     deleted.insert(tli.ttid, result);
                 }
