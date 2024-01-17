@@ -67,10 +67,7 @@ impl<'a> Deref for BlockLease<'a> {
             BlockLease::Arc(v) => v.deref(),
             #[cfg(test)]
             BlockLease::Vec(v) => {
-                let v: &Vec<u8> = v;
-                assert_eq!(v.len(), PAGE_SZ, "caller must ensure that v has PAGE_SZ");
-                // Safety: see above assertion.
-                unsafe { &*(v.as_ptr() as *const [u8; PAGE_SZ]) }
+                TryFrom::try_from(&v[..]).expect("caller must ensure that v has PAGE_SZ")
             }
         }
     }
