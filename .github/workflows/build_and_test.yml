@@ -887,8 +887,6 @@ jobs:
 
       - name: Build vm image
         run: |
-          sed -i "s/PGBOUNCER_AUTH_FILE_PASSWORD_PLACEHOLDER/${{ secrets.PGBOUNCER_AUTH_FILE_PASSWORD }}/g" vm-image-spec.yaml
-
           ./vm-builder \
             -spec=vm-image-spec.yaml \
             -src=369495373322.dkr.ecr.eu-central-1.amazonaws.com/compute-node-${{ matrix.version }}:${{needs.tag.outputs.build-tag}} \
