@@ -8,7 +8,7 @@ commands:
   - name: pgbouncer
     user: nobody
     sysvInitAction: respawn
-    shell: 'source /neonvm/runtime/env.sh && sed -i "s/PGBOUNCER_AUTH_FILE_PASSWORD_PLACEHOLDER/$PGBOUNCER_PASSWORD/g" /etc/pgbouncer_users.txt && pgbouncer /etc/pgbouncer.ini'
+    shell: 'source /neonvm/runtime/env.sh && sed -i "s/PGBOUNCER_AUTH_FILE_PASSWORD_PLACEHOLDER/$PGBOUNCER_PASSWORD/g" /etc/pgbouncer_users.txt && /usr/local/bin/pgbouncer /etc/pgbouncer.ini'
   - name: postgres-exporter
     user: nobody
     sysvInitAction: respawn
