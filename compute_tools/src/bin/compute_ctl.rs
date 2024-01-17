@@ -32,8 +32,6 @@
 //!             -S /var/db/postgres/specs/current.json \
 //!             -b /usr/local/bin/postgres \
 //!             -r http://pg-ext-s3-gateway \
-//!             --pgbouncer-connstr 'host=localhost port=6432 dbname=pgbouncer user=cloud_admin sslmode=disable'
-//!             --pgbouncer-ini-path /etc/pgbouncer.ini \
 //! ```
 //!
 use std::collections::HashMap;
@@ -113,7 +111,11 @@ fn main() -> Result<()> {
     let spec_path = matches.get_one::<String>("spec-path");
 
     let _pgbouncer_connstr = matches.get_one::<String>("pgbouncer-connstr");
-    let pgbouncer_ini_path = matches.get_one::<String>("pgbouncer-ini-path");
+    let pgbouncer_ini_path = if env::var_os("AUTOSCALING").is_some() {
+        Some("/etc/pgbouncer.ini".to_string())
+    } else {
+        Some("/var/db/postgres/pgbouncer/pgbouncer.ini".to_string())
+    };
 
     // Extract OpenTelemetry context for the startup actions from the
     // TRACEPARENT and TRACESTATE env variables, and attach it to the current
